@@ -1,9 +1,18 @@
 {
   "name": "pi-provider-workbuddy",
   "version": "0.1.0",
-  "description": "Pi extension for WorkBuddy (CodeBuddy) — dual-region providers (CN + Global) with OAuth login, dynamic model catalog with credit multipliers, loopback shim for the WorkBuddy wire quirks, and read-only credit/check-in commands",
+  "description": "Pi extension for WorkBuddy (CodeBuddy) — dual-region providers (CN + Global) with OAuth login, dynamic model catalog with credit multipliers, DSML tool-call recovery, and read-only credit/status commands",
   "type": "module",
   "license": "MIT",
+  "author": "lorlike",
+  "homepage": "https://github.com/lorlike/pi-provider-workbuddy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lorlike/pi-provider-workbuddy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lorlike/pi-provider-workbuddy/issues"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -18,6 +27,7 @@
   "files": [
     "LICENSE",
     "README.md",
+    "src",
     "dist"
   ],
   "scripts": {
