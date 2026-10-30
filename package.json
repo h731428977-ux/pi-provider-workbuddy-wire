@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-workbuddy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi extension for WorkBuddy (CodeBuddy) — dual-region providers (CN + Global) with OAuth login, dynamic model catalog with credit multipliers, DSML tool-call recovery, and read-only credit/status commands",
   "type": "module",
   "license": "MIT",
