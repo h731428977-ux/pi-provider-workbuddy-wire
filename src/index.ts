@@ -36,6 +36,12 @@ import { createWorkBuddyStream } from './stream.ts'
 import { oauthPoll, oauthStart, regionOfOAuthAccount } from './oauth.ts'
 import { CN_CHAT_BASE, GLOBAL_BASE, regionOf } from './upstream.ts'
 import type { WorkBuddyRegion } from './upstream.ts'
+import {
+  beijingDay,
+  describeCheckinToday,
+  runDailyCheckin,
+  saveCheckinRecord,
+} from './checkin.ts'
 
 const PROVIDER_IDS: Readonly<Record<WorkBuddyRegion, string>> = {
   cn: 'workbuddy',
@@ -303,16 +309,69 @@ export default async function (pi: ExtensionAPI) {
           const minutes = Math.round((status.expiresAtMs - Date.now()) / 60000)
           lines.push(`  token ${minutes >= 0 ? `${minutes} 分钟后过期` : '已过期，将在下次请求时刷新'}`)
         }
+        let credential: Awaited<ReturnType<typeof store.resolve>> | undefined
         try {
-          const credential = await store.resolve()
+          credential = await store.resolve()
           const client = new WorkBuddyUpstreamClient()
           const credits = await client.fetchCredits(credential)
           if (credits.total !== undefined) lines.push(`  积分余额: ${credits.total}`)
         } catch (error) {
           lines.push(`  积分查询失败: ${error instanceof Error ? error.message : String(error)}`)
         }
+        // The check-in line stands on its own: credits failing to read says
+        // nothing about today's campaign.
+        if (region === 'cn' && credential !== undefined) {
+          lines.push(`  ${await describeCheckinToday(region, credential)}`)
+        }
       }
       await ctx.ui.notify(lines.join('\n'), 'info')
+    },
+  })
+
+  pi.registerCommand('workbuddy.sign', {
+    description: 'WorkBuddy（国内版）每日签到，领取今日积分；已签到会如实说明',
+    handler: async (args, ctx) => {
+      const target = args.trim().toLowerCase()
+      if (target === 'global') {
+        await ctx.ui.notify('国际版没有每日签到活动，无需签到（积分来自套餐与一次性 trial）', 'warning')
+        return
+      }
+      if (target !== '' && target !== 'cn') {
+        await ctx.ui.notify('用法：/workbuddy.sign [cn]（目前只有国内版有签到活动）', 'warning')
+        return
+      }
+      const store = storeFor('cn')
+      const status = await store.status()
+      if (!status.signedIn) {
+        await ctx.ui.notify(`${PROVIDER_NAMES['cn']}: 未登录，请先运行 /login ${PROVIDER_IDS['cn']}`, 'warning')
+        return
+      }
+      try {
+        const credential = await store.resolve()
+        const day = beijingDay()
+        const result = await runDailyCheckin(credential)
+        // Only a real answer for the day is recorded; a failure records
+        // nothing, so /workbuddy.status never claims a day that did not happen.
+        if (result.outcome !== 'failed') {
+          saveCheckinRecord('cn', credential, {
+            day,
+            at: Date.now(),
+            outcome: result.outcome,
+            ...(result.credit === undefined ? {} : { credit: result.credit }),
+            ...(result.streakDays === undefined ? {} : { streakDays: result.streakDays }),
+            ...(result.message === '' ? {} : { message: result.message }),
+          })
+        }
+        await ctx.ui.notify(
+          `WorkBuddy (CN) 签到（北京时间 ${day}）：${result.message}`,
+          result.outcome === 'failed' ? 'error' : 'info',
+        )
+      } catch (error) {
+        await ctx.ui.notify(
+          `WorkBuddy (CN) 签到失败：${error instanceof Error ? error.message : String(error)}`,
+          'error',
+        )
+      }
     },
   })
 

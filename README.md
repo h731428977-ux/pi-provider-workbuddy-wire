@@ -1,7 +1,7 @@
 # pi-provider-workbuddy
 
 <p align="center">
-  <b>把本机登录的 WorkBuddy（CodeBuddy）模型接入 pi —— 国内版与国际版两个 provider 并行注册，OAuth 扫码登录，模型目录带真实积分倍率，只读积分查询。</b>
+  <b>把本机登录的 WorkBuddy（CodeBuddy）模型接入 pi —— 国内版与国际版两个 provider 并行注册，OAuth 扫码登录，模型目录带真实积分倍率，只读积分查询，国内版每日签到。</b>
 </p>
 
 ---
@@ -12,7 +12,8 @@
 - **登录即用**：`/login` 一条命令完成扫码（国内版）或网页登录（国际版），无需手动配置 API key。
 - **自动发现桌面端登录**：已安装 WorkBuddy 桌面 App 的机器上，插件自动读取它的登录状态（**始终只读**，永远不会改动桌面端的凭据）。Windows 新版桌面端加密的凭据字段，通过调用已安装 App 自身的解密能力读取；App 未安装时如实报告，不会谎报「未登录」。
 - **模型名内嵌积分倍率**：模型显示为 `GLM-5.3 · x0.79` 这样的形式，倍率完全来自上游目录，插件不写死也不猜。
-- **只读积分查询**：`/workbuddy.status` 查看两个区域的登录状态、token 有效期与积分余额，不花积分。
+- **只读积分查询**：`/workbuddy.status` 查看两个区域的登录状态、token 有效期、积分余额，以及国内版**今天有没有签到**，不花积分。
+- **每日签到**：`/workbuddy.sign` 领取国内版（WorkBuddy CN）的每日签到积分。先查活动状态，活动进行中且今天未领才领取——重复执行不会重复领，也不会把「今天已签」报成失败。
 - **工具调用恢复**：上游偶尔把工具调用写进正文文本而不是结构化字段，插件按严格的四道闸（已闭合、名字已声明、请求有工具、无缺参）把它恢复成真正的工具调用；不满足条件的原样展示，从不猜测。
 - **错误说得清楚**：排队时告诉你排在第几位；积分耗尽、模型负载高、登录失效各有各的提示，不把「模型忙」说成「余额不足」。
 
@@ -59,9 +60,25 @@ pi install git:github.com/lorlike/pi-provider-workbuddy
 
 | 命令 | 说明 |
 | --- | --- |
-| `/workbuddy.status` | 登录状态、凭据来源、token 有效期与积分余额（只读） |
+| `/workbuddy.sign` | 国内版每日签到（领今日积分）；已签到 / 活动未开启会如实说明 |
+| `/workbuddy.status` | 登录状态、凭据来源、token 有效期、积分余额，以及今日签到状态（只读） |
 | `/workbuddy.refresh` | 从上游刷新模型目录并重载 |
 | `/workbuddy.logout [cn\|global]` | 清除插件自己存的凭据（不影响桌面端登录）；不带参数默认清两个区域 |
+
+### 签到（目前只有国内版）
+
+```text
+/workbuddy.sign      # 领取今天的签到积分
+/workbuddy.status    # 看今天签到了没有
+```
+
+行为说明：
+
+- **先问状态再领**：`/workbuddy.sign` 先查活动状态（`checkin-activity-status`，旧端点 `checkin-status` 作后备），活动进行中且今天未领才调 `daily-checkin`。所以它**幂等**，一天跑几次都只有第一次真正领取。
+- **按北京时间算一天**：签到日以 UTC+8 划分（固定偏移，不依赖系统时区数据库）。
+- **如实报告**：上游会区分「已签到（code 1001）」「账号不能参与（1002）」「活动已结束（1003）」，插件照原样转述，不把拒绝说成网络失败。
+- **本地只记结论**：结果写在 `~/.pi/agent/workbuddy/workbuddy-checkin.json`，只存「哪天 / 结论 / 积分 / 连签天数」，**不存昵称也不存 token**。上游查不到状态时，`/workbuddy.status` 只会显示**当天**的本地记录，并明确标注是本地记录——没看到的一天绝不会被说成「已签到」。
+- **国际版没有这个活动**：上游国际版出厂即关闭签到，`/workbuddy.sign global` 会直接说明，不浪费一次请求。
 
 ## 常见问题
 
@@ -106,6 +123,7 @@ pi（openai-completions 内建实现）
 
 模型目录：/v3/config（App 通道 UA；国内版失败时降级 /v2 旧文档）
 积分查询：/v2/billing/meter/get-user-resource（企业席位走企业表）
+每日签到：/v2/billing/meter/checkin-activity-status → /v2/billing/meter/daily-checkin（国内版）
 ```
 
 更多实现细节：

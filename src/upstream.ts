@@ -48,6 +48,23 @@ export const CHAT_PATH = '/v2/chat/completions'
 export const REFRESH_PATH = '/v2/plugin/auth/token/refresh'
 
 /**
+ * Daily check-in (签到) paths, read from the billing base. The activity
+ * endpoint is the one the client asks first; `checkin-status` is the older
+ * spelling kept as a fallback (a gateway that stops serving the modern one
+ * degrades instead of reporting "no campaign").
+ *
+ * Only the CN build runs the campaign; the international one ships with it
+ * off.
+ */
+export const CHECKIN_STATUS_PATHS: readonly string[] = [
+  '/v2/billing/meter/checkin-activity-status',
+  '/v2/billing/meter/checkin-status',
+]
+
+/** The claim itself — POST once per Beijing day while the campaign runs. */
+export const DAILY_CHECKIN_PATH = '/v2/billing/meter/daily-checkin'
+
+/**
  * The chat channel's user agent — the identity chat requests speak as.
  * The upstream bills and rate-limits chat as the CLI agent.
  */
