@@ -4,27 +4,26 @@
  *
  * Wire behaviour follows the measured protocol in dingminhua/dsh-connect-workbuddy
  * (MIT), which credits corrinehu/dsh-workbuddy-connect and Sliverkiss/workbuddy2api.
- * Security red lines carried over: chat requests never carry the refresh token;
- * every conversation identity value is generated fresh per request.
+ * Security red lines carried over: chat requests never carry the refresh token.
+ * Conversation and turn identity are supplied by the stream layer.
  */
 
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
+import { gzipSync } from 'node:zlib'
 import {
   CHAT_PATH,
-  chatBase,
-  CLIENT_UA,
   ERROR_BODY_LIMIT,
   GLOBAL_CONFIG_PATH,
   JSON_TIMEOUT_MS,
   MODELS_CATALOG_PATH,
-  originReferer,
-  PRODUCT_UA,
   regionOf,
   globalBase,
 } from './upstream.ts'
 import type { WorkBuddyCredential } from './store.ts'
 import { selectCliModels } from './store.ts'
 import type { WorkBuddyUpstreamModel } from './store.ts'
+import type { WorkBuddyWireIdentity } from './wire-identity.ts'
+import { chatBase, workBuddyCatalogHeaders, workBuddyModelHeaders } from './wire.ts'
 
 /**
  * Upstream failure classes the client maps onto distinct HTTP answers.
@@ -412,52 +411,6 @@ export function declaredTools(bodyJson: string): DeclaredTools | undefined {
   return { names, requiredParameters, acceptedParameters }
 }
 
-// ---------------------------------------------------------------------------
-// Headers
-// ---------------------------------------------------------------------------
-
-/** Headers every upstream request shares. */
-function commonHeaders(credential: WorkBuddyCredential): Record<string, string> {
-  return {
-    'Accept': 'application/json, text/plain, */*',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Origin': originReferer(credential),
-    'Referer': `${originReferer(credential)}/`,
-    'User-Agent': CLIENT_UA,
-  }
-}
-
-/**
- * The conversation-identity triple the chat endpoint now requires. Any
- * well-formed UUID passes; values are freshly generated per request, as the
- * official client does. Applied to both regions on purpose — a header that is
- * only ever sent on one side is exactly how a gate becomes invisible.
- */
-function conversationHeaders(): Record<string, string> {
-  return {
-    'X-Conversation-ID': randomUUID(),
-    'X-Conversation-Request-ID': randomUUID(),
-    'X-Conversation-Message-ID': randomUUID(),
-  }
-}
-
-/** Chat request headers, including the X-No-* conventions the official CLI uses. */
-function chatHeaders(credential: WorkBuddyCredential): Record<string, string> {
-  return {
-    ...commonHeaders(credential),
-    'Content-Type': 'application/json',
-    // 安全红线：chat 请求绝不携带 refresh token。
-    'Authorization': `Bearer ${credential.accessToken}`,
-    ...(credential.uid === '' ? { 'X-No-User-Id': '1' } : { 'X-User-Id': credential.uid }),
-    ...(credential.enterpriseId === undefined || credential.enterpriseId === ''
-      ? { 'X-No-Enterprise-Id': '1' }
-      : { 'X-Enterprise-Id': credential.enterpriseId }),
-    ...(credential.domain === '' ? { 'X-No-Department-Info': '1' } : { 'X-Domain': credential.domain }),
-    'X-Product': 'SaaS',
-    ...conversationHeaders(),
-  }
-}
-
 /** Read a JSON envelope; throws with the classified error on failure. */
 async function readEnvelope(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text()
@@ -488,6 +441,22 @@ function envelopeData(document: Record<string, unknown>): Record<string, unknown
 }
 
 /**
+ * Keep only Anthropic protocol headers such as `anthropic-version` and
+ * `anthropic-beta`. Authentication and SDK identity are always replaced by
+ * WorkBuddy's own headers.
+ */
+function safeProviderHeaders(input?: HeadersInit): Record<string, string> {
+  if (input === undefined) return {}
+  const out: Record<string, string> = {}
+  new Headers(input).forEach((value, name) => {
+    if (name.startsWith('anthropic-') && name !== 'anthropic-dangerous-direct-browser-access') {
+      out[name] = value
+    }
+  })
+  return out
+}
+
+/**
  * Upstream HTTP client. Requests take the credential explicitly so token
  * refreshes apply on the next call.
  */
@@ -496,14 +465,61 @@ export class WorkBuddyUpstreamClient {
   async chatStream(
     credential: WorkBuddyCredential,
     bodyJson: string,
+    identity: WorkBuddyWireIdentity,
     signal?: AbortSignal,
+    extraHeaders?: HeadersInit,
+  ): Promise<WorkBuddyChatResult> {
+    return this.modelStream(
+      credential,
+      `${chatBase(credential)}${CHAT_PATH}`,
+      bodyJson,
+      identity,
+      true,
+      signal,
+      extraHeaders,
+    )
+  }
+
+  /** POST the Anthropic Messages route; this route is never gzipped. */
+  async messagesStream(
+    credential: WorkBuddyCredential,
+    bodyJson: string,
+    identity: WorkBuddyWireIdentity,
+    signal?: AbortSignal,
+    extraHeaders?: HeadersInit,
+  ): Promise<WorkBuddyChatResult> {
+    return this.modelStream(
+      credential,
+      `${chatBase(credential)}/v1/messages`,
+      bodyJson,
+      identity,
+      false,
+      signal,
+      extraHeaders,
+    )
+  }
+
+  private async modelStream(
+    credential: WorkBuddyCredential,
+    url: string,
+    bodyJson: string,
+    identity: WorkBuddyWireIdentity,
+    compress: boolean,
+    signal?: AbortSignal,
+    extraHeaders?: HeadersInit,
   ): Promise<WorkBuddyChatResult> {
     let response: Response
     try {
-      response = await fetch(`${chatBase(credential)}${CHAT_PATH}`, {
+      const headers = {
+        ...safeProviderHeaders(extraHeaders),
+        ...workBuddyModelHeaders(credential, identity),
+      }
+      const body = compress ? gzipSync(Buffer.from(bodyJson, 'utf8')) : bodyJson
+      if (compress) headers['Content-Encoding'] = 'gzip'
+      response = await fetch(url, {
         method: 'POST',
-        headers: chatHeaders(credential),
-        body: bodyJson,
+        headers,
+        body,
         ...(signal === undefined ? {} : { signal }),
       })
     } catch (error) {
@@ -534,13 +550,7 @@ export class WorkBuddyUpstreamClient {
     const timeout = signal ?? AbortSignal.timeout(JSON_TIMEOUT_MS)
     const readCatalog = async (path: string): Promise<readonly WorkBuddyUpstreamModel[]> => {
       const response = await fetch(`${chatBase(credential)}${path}`, {
-        headers: {
-          'Authorization': `Bearer ${credential.accessToken}`,
-          'Accept': 'application/json',
-          'Origin': originReferer(credential),
-          'Referer': `${originReferer(credential)}/`,
-          'User-Agent': PRODUCT_UA,
-        },
+        headers: workBuddyCatalogHeaders(credential),
         signal: timeout,
       })
       const envelope = await readEnvelope(response)

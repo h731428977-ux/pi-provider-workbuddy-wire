@@ -20,18 +20,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Verify release candidate
+        run: npm run verify
 
-      - name: Build
-        run: npm run build
-
-      - name: Verify build output
-        run: test -f dist/index.js
+      - name: Pack release artifact
+        run: |
+          mkdir -p release
+          npm pack --ignore-scripts --pack-destination release
+          cd release
+          sha256sum *.tgz > SHA256SUMS
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: dist/
+          name: package
+          path: |
+            dist/
+            release/
           retention-days: 7

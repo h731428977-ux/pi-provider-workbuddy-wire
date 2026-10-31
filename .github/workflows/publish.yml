@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -23,11 +22,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Build
-        run: npm run build
+      - name: Verify release candidate
+        run: npm run verify
 
       - name: Verify package version matches tag
         run: |
@@ -37,19 +33,30 @@ jobs:
             exit 1
           fi
 
-      - name: Publish
-        run: npm publish
+      - name: Pack release artifacts
+        run: |
+          mkdir -p release
+          npm pack --ignore-scripts --pack-destination release
+          cd release
+          sha256sum *.tgz > SHA256SUMS
+
+      - name: Publish npm package
+        run: npm publish release/*.tgz --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/*.tgz release/SHA256SUMS \
+            --generate-notes --verify-tag --title "$GITHUB_REF_NAME"
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Upload build artifact
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ github.ref_name }}
-          path: dist/
+          name: package-${{ github.ref_name }}
+          path: |
+            dist/
+            release/
           retention-days: 30

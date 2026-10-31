@@ -36,6 +36,7 @@ import { createWorkBuddyStream } from './stream.ts'
 import { oauthPoll, oauthStart, regionOfOAuthAccount } from './oauth.ts'
 import { CN_CHAT_BASE, GLOBAL_BASE, regionOf } from './upstream.ts'
 import type { WorkBuddyRegion } from './upstream.ts'
+import { apiForModel, WORKBUDDY_CHAT_API, WORKBUDDY_MESSAGES_API } from './wire-profile.ts'
 import {
   beijingDay,
   describeCheckinToday,
@@ -106,23 +107,29 @@ function toModelConfigs(region: WorkBuddyRegion, models: readonly WorkBuddyUpstr
   return models.map((info) => {
     const image = nativeImageInput(info.id)
     const thinkingLevelMap = thinkingLevelMapFor(info)
+    const api = apiForModel(region, info.id)
     return {
       id: info.id,
       name: workBuddyDisplayName(info),
+      api,
       reasoning: thinkingLevelMap !== undefined,
       ...(thinkingLevelMap === undefined ? {} : { thinkingLevelMap }),
       input: image === true ? ['text', 'image'] : ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: info.contextWindow,
       maxTokens: info.maxTokens,
-      compat: {
-        // The gateways reject the `developer` role (11128) and count
-        // `reasoning_effort` from the model's own ladder only.
-        supportsDeveloperRole: false,
-        supportsReasoningEffort: thinkingLevelMap !== undefined,
-        maxTokensField: 'max_tokens',
-        supportsStore: false,
-      },
+      ...(api === WORKBUDDY_CHAT_API
+        ? {
+            compat: {
+              // The gateways reject the `developer` role (11128) and count
+              // `reasoning_effort` from the model's own ladder only.
+              supportsDeveloperRole: false,
+              supportsReasoningEffort: thinkingLevelMap !== undefined,
+              maxTokensField: 'max_tokens',
+              supportsStore: false,
+            },
+          }
+        : {}),
     }
   })
 }
@@ -162,7 +169,7 @@ export default async function (pi: ExtensionAPI) {
     pi.registerProvider(PROVIDER_IDS[region], {
       name: PROVIDER_NAMES[region],
       baseUrl: region === 'cn' ? CN_CHAT_BASE : GLOBAL_BASE,
-      api: 'workbuddy-api',
+      api: WORKBUDDY_CHAT_API,
       models: toModelConfigs(region, models),
       oauth: {
         name: PROVIDER_NAMES[region],
@@ -206,7 +213,7 @@ export default async function (pi: ExtensionAPI) {
             pi.registerProvider(PROVIDER_IDS[region2], {
               name: PROVIDER_NAMES[region2],
               baseUrl: region2 === 'cn' ? CN_CHAT_BASE : GLOBAL_BASE,
-              api: 'workbuddy-api',
+              api: WORKBUDDY_CHAT_API,
               models: toModelConfigs(region2, models2),
             })
             return {
@@ -262,26 +269,28 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
-  // Register the custom API implementation that delegates to the built-in
-  // openai-completions with WorkBuddy wire rewrites.
+  // Register the Chat Completions and Anthropic Messages adapters with the
+  // WorkBuddy request layer.
   try {
     const compat = await import('@earendil-works/pi-ai/compat')
     const register = compat.registerApiProvider
     if (typeof register === 'function') {
-      register(
-        {
-          api: 'workbuddy-api',
-          stream: (model, context, options) => {
-            const region = providerRegionOf(model)
-            return streamFor(region)(model, context, options as SimpleStreamOptions | undefined)
+      for (const api of [WORKBUDDY_CHAT_API, WORKBUDDY_MESSAGES_API]) {
+        register(
+          {
+            api,
+            stream: (model, context, options) => {
+              const region = providerRegionOf(model)
+              return streamFor(region)(model, context, options as SimpleStreamOptions | undefined)
+            },
+            streamSimple: (model, context, options) => {
+              const region = providerRegionOf(model)
+              return streamFor(region)(model, context, options)
+            },
           },
-          streamSimple: (model, context, options) => {
-            const region = providerRegionOf(model)
-            return streamFor(region)(model, context, options)
-          },
-        },
-        'provider:workbuddy',
-      )
+          'provider:workbuddy',
+        )
+      }
     }
   } catch (error) {
     console.warn('[pi-provider-workbuddy] api registration failed:', error instanceof Error ? error.message : error)

@@ -65,20 +65,13 @@ export const CHECKIN_STATUS_PATHS: readonly string[] = [
 export const DAILY_CHECKIN_PATH = '/v2/billing/meter/daily-checkin'
 
 /**
- * The chat channel's user agent — the identity chat requests speak as.
- * The upstream bills and rate-limits chat as the CLI agent.
+ * The China desktop client identity. Kept as named exports for billing and
+ * diagnostics; model and catalog requests use the full profile in
+ * `wire-profile.ts`.
  */
-export const CLIENT_UA = 'CLI/2.63.2 CodeBuddy/2.63.2'
-
-/**
- * The product-config channel's UA: the app's own identity, byte-for-byte what
- * the app sends to `/v3/config`. Version suffixes are inert — what selects the
- * document is the CHANNEL the header claims, not the version in it.
- */
-export const PRODUCT_UA = 'WorkBuddy/5.8.3 WorkBuddy/5.8.3 CLI/2.161.0'
-
-/** The app version inside PRODUCT_UA, for headers that need it alone. */
-export const APP_VERSION = PRODUCT_UA.match(/WorkBuddy\/([^\s]+)/u)?.[1] ?? '5.8.3'
+export const CLIENT_UA = 'WorkBuddy/5.9.3 WorkBuddy/5.9.3 CLI/2.165.0'
+export const PRODUCT_UA = CLIENT_UA
+export const APP_VERSION = '5.9.3'
 
 /**
  * Region for a login domain; an empty domain means CN (matching upstream

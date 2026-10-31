@@ -20,8 +20,10 @@
  */
 
 import {
+  anthropicMessagesApi,
   createAssistantMessageEventStream,
   getCurrentTools,
+  openAICompletionsApi,
   type Api,
   type AssistantMessage,
   type AssistantMessageEventStream,
@@ -35,8 +37,10 @@ import type { UpstreamErrorKind } from './client.ts'
 import { DsmlStreamBuffer, parseToolCalls, stripMarkup } from './dsml.ts'
 import type { RecoveredToolCall } from './dsml.ts'
 import type { WorkBuddyCredential } from './store.ts'
-
-const client = new WorkBuddyUpstreamClient()
+import { regionOf } from './upstream.ts'
+import { deriveWireIdentity } from './wire-identity.ts'
+import { WORKBUDDY_MESSAGES_API, usesMessagesApi } from './wire-profile.ts'
+import { chatBase, workBuddyModelHeaders } from './wire.ts'
 
 /**
  * A credential the stream can resolve per request. The store refreshes
@@ -44,6 +48,19 @@ const client = new WorkBuddyUpstreamClient()
  * applies without a reload.
  */
 export type CredentialResolver = () => Promise<WorkBuddyCredential>
+
+function bodyText(body: BodyInit | null | undefined): string {
+  if (typeof body === 'string') return body
+  if (body instanceof ArrayBuffer) return new TextDecoder().decode(body)
+  if (ArrayBuffer.isView(body)) {
+    return new TextDecoder().decode(new Uint8Array(body.buffer, body.byteOffset, body.byteLength))
+  }
+  throw new Error(`WorkBuddy request body is not JSON text (${Object.prototype.toString.call(body)})`)
+}
+
+function usesNativeMessages(model: Model<Api>, credential: WorkBuddyCredential): boolean {
+  return model.api === WORKBUDDY_MESSAGES_API || usesMessagesApi(regionOf(credential.domain), model.id)
+}
 
 function placeholderMessage(model: Model<Api>, errorMessage: string, aborted: boolean): AssistantMessage {
   return {
@@ -67,13 +84,12 @@ function placeholderMessage(model: Model<Api>, errorMessage: string, aborted: bo
 }
 
 /**
- * Stream one chat completion through the WorkBuddy gateway.
+ * Stream one model request through the WorkBuddy gateway.
  *
- * The heavy lifting (request conversion, tool handling, usage accounting,
- * abort) belongs to pi-ai's openai-completions implementation; this wrapper
- * exists to (a) put the WorkBuddy headers and body rewrites on the wire and
- * (b) recover DSML tool-call markup the model writes into text instead of
- * `delta.tool_calls` — which the inner stream cannot know about.
+ * Pi's OpenAI or Anthropic adapter still owns request conversion, streaming,
+ * tool handling and usage accounting. This wrapper supplies WorkBuddy's
+ * desktop-client identity, stable conversation ids and transport policy, and
+ * recovers DSML tool calls on the Chat Completions route.
  */
 export function createWorkBuddyStream(
   resolveCredential: CredentialResolver,
@@ -84,51 +100,59 @@ export function createWorkBuddyStream(
     void (async () => {
       try {
         const credential = await resolveCredential()
+        const nativeMessages = usesNativeMessages(model, credential)
+        const identity = deriveWireIdentity(credential, context.messages, options?.sessionId)
+        const headers = workBuddyModelHeaders(credential, identity)
+        const base = `${chatBase(credential)}`
 
         // The DSML gate rides on the request's own tool declarations, read
         // from the transcript's system messages (the same source the inner
         // api reads; the request body itself is only fully known inside
         // onPayload, which is where prepareChatBody runs).
-        const declaredTools = getCurrentTools(context.messages)
-        const gateNames = new Set(declaredTools.map(tool => tool.name))
-        const buffer = gateNames.size > 0
+        const currentTools = getCurrentTools(context.messages)
+        const gateNames = new Set(currentTools.map(tool => tool.name))
+        const buffer = !nativeMessages && gateNames.size > 0
           ? new DsmlStreamBuffer({
               declaredNames: gateNames,
-              requiredParameters: new Map(declaredTools.map((tool) => {
+              requiredParameters: new Map(currentTools.map((tool) => {
                 const parameters = (tool as { parameters?: { required?: string[] } }).parameters
                 return [tool.name, Array.isArray(parameters?.required) ? parameters.required : []]
               })),
-              acceptedParameters: new Map(declaredTools.map((tool) => {
+              acceptedParameters: new Map(currentTools.map((tool) => {
                 const parameters = (tool as { parameters?: { properties?: Record<string, unknown> } }).parameters
                 return [tool.name, new Set(Object.keys(parameters?.properties ?? {}))]
               })),
             })
           : undefined
 
-        const { chatHeadersFor, upstreamBaseFor } = await import('./wire.ts')
-        const headers = chatHeadersFor(credential)
-        const base = upstreamBaseFor(credential)
         const upstream = new WorkBuddyUpstreamClient()
 
-        // Delegate to the built-in openai-completions implementation and
-        // overlay the WorkBuddy specifics through its seams: headers carry
-        // the real identity, onPayload forces the stream flag, and the
-        // custom fetch forwards to the upstream client so classification,
-        // queue notices and credential handling stay in one place.
+        // Delegate to Pi's built-in OpenAI or Anthropic adapter and overlay
+        // WorkBuddy's identity and transport rules at the fetch boundary.
         const innerOptions: SimpleStreamOptions = {
           ...options,
           apiKey: 'workbuddy-managed',
           headers,
+          maxRetries: 0,
+          timeoutMs: 1_200_000,
           onPayload: (payload: unknown) => {
+            if (nativeMessages) return payload
             const params = payload as Record<string, unknown>
             params['stream'] = true
             return params
           },
           fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
-            const bodyJson = typeof init?.body === 'string' ? init.body : ''
-            const prepared = prepareChatBody(bodyJson)
             const signal = init?.signal ?? options?.signal
-            const result = await upstream.chatStream(credential, prepared, signal)
+            const bodyJson = bodyText(init?.body)
+            const result = nativeMessages
+              ? await upstream.messagesStream(credential, bodyJson, identity, signal, init?.headers)
+              : await upstream.chatStream(
+                  credential,
+                  prepareChatBody(bodyJson),
+                  identity,
+                  signal,
+                  init?.headers,
+                )
             if (!result.ok) {
               const kind: UpstreamErrorKind = result.kind ?? 'server'
               const status = KIND_STATUS[kind]
@@ -145,16 +169,19 @@ export function createWorkBuddyStream(
             }
             // Post-process the SSE stream: recover DSML tool calls written
             // into delta.content before the inner api parses the frames.
-            if (buffer === undefined || result.response === undefined) {
+            if (nativeMessages || buffer === undefined || result.response === undefined) {
               return result.response ?? new Response(null, { status: 200 })
             }
             return transformSse(result.response, buffer)
           }) as typeof fetch,
         }
 
-        const { openAICompletionsApi } = await import('@earendil-works/pi-ai/compat')
-        const api = openAICompletionsApi()
-        const inner = api.streamSimple({ ...model, baseUrl: base }, context, innerOptions)
+        const api = nativeMessages ? anthropicMessagesApi() : openAICompletionsApi()
+        const inner = api.streamSimple(
+          { ...model, baseUrl: nativeMessages ? `${base}/v1` : base },
+          context,
+          innerOptions,
+        )
         for await (const event of inner) stream.push(event)
         stream.end()
       } catch (error) {

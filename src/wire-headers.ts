@@ -1,37 +1,44 @@
 /**
- * Shared header helpers (kept dependency-light for lazy imports).
+ * Shared gateway and identity header helpers.
+ *
+ * This module stays dependency-light so streaming code can import it without
+ * pulling in the credential store or OAuth implementation.
  */
 
-import { randomUUID } from 'node:crypto'
+import type { WorkBuddyCredential } from './store.ts'
 import {
   CN_CHAT_BASE,
-  CLIENT_UA,
   GLOBAL_BASE,
   GLOBAL_CODEBUDDY_BASE,
-  originReferer as originOf,
+  globalBase,
+  originReferer,
   regionOf,
-  globalBase as globalBaseOf,
 } from './upstream.ts'
+import type { WorkBuddyRegion } from './upstream.ts'
+import { wireProfileFor } from './wire-profile.ts'
 
-export { CN_CHAT_BASE, GLOBAL_BASE, GLOBAL_CODEBUDDY_BASE, CLIENT_UA, regionOf }
+export {
+  CN_CHAT_BASE,
+  GLOBAL_BASE,
+  GLOBAL_CODEBUDDY_BASE,
+  globalBase,
+  originReferer,
+  regionOf,
+}
 
 export function chatBase(credential: { domain: string }): string {
-  return regionOf(credential.domain) === 'global' ? globalBaseOf(credential.domain) : CN_CHAT_BASE
+  return regionOf(credential.domain) === 'global' ? globalBase(credential.domain) : CN_CHAT_BASE
 }
 
-export function originReferer(credential: { domain: string }): string {
-  return originOf(credential)
+export function userAgentFor(credential: { domain: string }): string {
+  return wireProfileFor(regionOf(credential.domain)).userAgent
 }
 
-export function globalBase(domain: string): string {
-  return globalBaseOf(domain)
-}
-
-/** Fresh conversation-identity triple, generated per request. */
-export function randomUUIDHeaders(): Record<string, string> {
-  return {
-    'X-Conversation-ID': randomUUID(),
-    'X-Conversation-Request-ID': randomUUID(),
-    'X-Conversation-Message-ID': randomUUID(),
-  }
+export function accountDomain(
+  credential: Pick<WorkBuddyCredential, 'domain'>,
+  region: WorkBuddyRegion,
+): string {
+  const stated = credential.domain.trim()
+  if (stated !== '') return stated
+  return new URL(region === 'global' ? GLOBAL_BASE : CN_CHAT_BASE).host
 }
