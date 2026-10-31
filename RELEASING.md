@@ -8,17 +8,17 @@ also be installed from a Git repository.
 ### GitHub
 
 The upstream project remains available as `upstream`; releases are stored in
-the private repository `h731428977-ux/pi-provider-workbuddy-wire`:
+the public repository `h731428977-ux/pi-provider-workbuddy-wire`:
 
 ```powershell
 git remote rename origin upstream
 gh repo create h731428977-ux/pi-provider-workbuddy-wire `
-  --private --source . --remote origin --push
+  --public --source . --remote origin --push
 ```
 
 Add an npm automation token with publish access as the repository secret
-`NPM_TOKEN`. Because this source repository is private, the publish workflow
-does not attach public npm provenance.
+`NPM_TOKEN`. The publish workflow also uses GitHub OIDC to attach npm
+provenance.
 
 ### npm
 
@@ -56,7 +56,7 @@ Pushing the tag runs `.github/workflows/publish.yml`, which:
 
 - verifies the tag matches `package.json`;
 - reruns type checking, tests, build, and package validation;
-- publishes the npm tarball;
+- publishes the npm tarball with provenance;
 - creates a GitHub Release with the tarball and `SHA256SUMS`.
 
 ## Manual publish fallback

@@ -46,21 +46,17 @@ pi install npm:pi-provider-workbuddy-wire
 
 **Git 仓库**
 
-另一台电脑第一次安装时：
+仓库已公开，另一台电脑不需要 GitHub 登录或仓库权限：
 
 1. 安装 Pi 1.4+ 和 Node.js 22.19+。
-2. 登录有私有仓库权限的 GitHub 账号，并让 Git 使用该登录。
-3. 安装插件。
+2. 安装插件。
 
 ```powershell
-gh auth login
-gh auth setup-git
-gh repo view h731428977-ux/pi-provider-workbuddy-wire
 pi install git:github.com/h731428977-ux/pi-provider-workbuddy-wire
 pi list
 ```
 
-`gh repo view` 必须能打开仓库；如果返回 404，就表示这台电脑使用的 GitHub 账号没有私有仓库权限。安装完成后启动 `pi`，再执行 `/login workbuddy` 登录 WorkBuddy 账号。
+安装完成后启动 `pi`，再执行 `/login workbuddy` 登录 WorkBuddy 账号。
 
 **本地源码目录**
 
