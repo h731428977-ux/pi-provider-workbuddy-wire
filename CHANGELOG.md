@@ -13,6 +13,7 @@ All notable changes to this project are documented in this file.
 - Native Anthropic Messages routing for China-region Claude models.
 - Provider registration and full Pi adapter integration tests.
 - Release verification and npm packaging checks.
+- A committed runtime bundle so private Git installs work without a build step.
 
 ### Validated
 

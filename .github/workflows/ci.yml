@@ -23,6 +23,9 @@ jobs:
       - name: Verify release candidate
         run: npm run verify
 
+      - name: Verify committed runtime bundle
+        run: git diff --exit-code -- dist/index.js
+
       - name: Pack release artifact
         run: |
           mkdir -p release
