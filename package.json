@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-workbuddy-wire",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Pi extension for WorkBuddy with desktop-client wire compatibility, stable conversation identity, gzip chat requests, and native Claude Messages routing",
   "type": "module",
   "main": "./dist/index.js",

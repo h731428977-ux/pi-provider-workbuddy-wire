@@ -28,7 +28,7 @@
 import type { ExtensionAPI, ProviderConfig } from '@earendil-works/pi-coding-agent'
 import type { Model, SimpleStreamOptions, TranscriptContext } from '@earendil-works/pi-ai/compat'
 
-import { nativeImageInput, REFUSES_OFF_MODEL_IDS } from './catalog.ts'
+import { nativeImageInput, offEffortValue, REFUSES_OFF_MODEL_IDS } from './catalog.ts'
 import { WorkBuddyCredentialStore } from './store.ts'
 import type { WorkBuddyUpstreamModel } from './store.ts'
 import { WorkBuddyUpstreamClient, prepareChatBody } from './client.ts'
@@ -83,10 +83,11 @@ function workBuddyDisplayName(info: WorkBuddyUpstreamModel): string {
 
 /**
  * Map only the thinking levels the model actually advertises; undeclared
- * levels stay unavailable (`null`). `off` is offered exactly when the model
- * declares it AND is not on the measured refusal table.
+ * levels stay unavailable (`null`). `off` first uses a measured upstream
+ * spelling override; otherwise it is offered only when the model declares it
+ * and is not on the literal-"off" refusal table.
  */
-function thinkingLevelMapFor(info: WorkBuddyUpstreamModel): Record<string, string | null> | undefined {
+export function thinkingLevelMapFor(info: WorkBuddyUpstreamModel): Record<string, string | null> | undefined {
   const supported = info.reasoning?.supportedEfforts?.filter(effort =>
     ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(effort))
   if (supported === undefined || supported.length === 0) return undefined
@@ -97,9 +98,11 @@ function thinkingLevelMapFor(info: WorkBuddyUpstreamModel): Record<string, strin
   // pi-ai treats `off: null` as "this level is not supported" and withholds
   // thinking-disabled requests; the refusal table is re-checked here so the
   // wall does not depend on every caller remembering to stamp first.
-  map['off'] = info.reasoning?.canDisableThinking === true && !REFUSES_OFF_MODEL_IDS.has(info.id)
-    ? 'off'
-    : null
+  const offEffort = offEffortValue(info.id)
+  map['off'] = offEffort
+    ?? (info.reasoning?.canDisableThinking === true && !REFUSES_OFF_MODEL_IDS.has(info.id)
+      ? 'off'
+      : null)
   return map
 }
 

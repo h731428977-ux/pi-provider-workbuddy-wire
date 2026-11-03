@@ -6,12 +6,14 @@ import {
   unregisterApiProviders,
 } from '@earendil-works/pi-ai/compat'
 
-import initialize from '../src/index.ts'
+import initialize, { thinkingLevelMapFor } from '../src/index.ts'
+import { nativeImageInput } from '../src/catalog.ts'
 import { WorkBuddyCredentialStore } from '../src/store.ts'
 import {
   WORKBUDDY_CHAT_API,
   WORKBUDDY_MESSAGES_API,
 } from '../src/wire-profile.ts'
+import type { WorkBuddyUpstreamModel } from '../src/store.ts'
 
 const originalStatus = WorkBuddyCredentialStore.prototype.status
 
@@ -61,4 +63,37 @@ test('plugin start registers both regions and custom stream adapters without loc
     [...commands.keys()],
     ['workbuddy.status', 'workbuddy.sign', 'workbuddy.refresh', 'workbuddy.logout'],
   )
+})
+
+test('measured model capability aliases are mapped for Pi', () => {
+  const deepseekFlash: WorkBuddyUpstreamModel = {
+    id: 'deepseek-v4.1-flash',
+    name: 'Deepseek-V4.1-Flash',
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    reasoning: {
+      supportedEfforts: ['low', 'high', 'max'],
+      defaultEffort: 'high',
+      canDisableThinking: true,
+    },
+  }
+  const deepseekFlashSg: WorkBuddyUpstreamModel = {
+    ...deepseekFlash,
+    id: 'deepseek-v4.1-flash-sg',
+  }
+  const refusedOff: WorkBuddyUpstreamModel = {
+    ...deepseekFlash,
+    id: 'deepseek-v4-pro',
+  }
+  const ordinaryOff: WorkBuddyUpstreamModel = {
+    ...deepseekFlash,
+    id: 'glm-5.3-flash',
+  }
+
+  assert.equal(thinkingLevelMapFor(deepseekFlash)?.['off'], 'none')
+  assert.equal(thinkingLevelMapFor(deepseekFlashSg)?.['off'], 'none')
+  assert.equal(thinkingLevelMapFor(refusedOff)?.['off'], null)
+  assert.equal(thinkingLevelMapFor(ordinaryOff)?.['off'], 'off')
+  assert.equal(nativeImageInput('kimi-k3'), true)
+  assert.equal(nativeImageInput('kimi-k3-1'), true)
 })

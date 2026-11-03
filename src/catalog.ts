@@ -57,7 +57,7 @@ export function fallbackModelsFor(region: WorkBuddyRegion): readonly WorkBuddyUp
 /** Model ids documented as native multimodal (vendored vendor-documentation table). */
 const NATIVE_MULTIMODAL: ReadonlySet<string> = new Set([
   'deepseek-v4.1-flash', 'glm-5.3-flash', 'glm-5v-turbo', 'kimi-k2.6',
-  'kimi-k2.7', 'kimi-k3-1', 'minimax-m3',
+  'kimi-k2.7', 'kimi-k3', 'kimi-k3-1', 'minimax-m3',
 ])
 
 /** Model ids documented as text-only. */
@@ -74,6 +74,19 @@ export function nativeImageInput(modelId: string): boolean | undefined {
   if (NATIVE_MULTIMODAL.has(modelId)) return true
   if (NATIVE_TEXT.has(modelId)) return false
   return undefined
+}
+
+/**
+ * Models whose upstream spelling for "thinking off" is `none` rather than
+ * `off`. WorkBuddy answers both ids with zero reasoning tokens and no error.
+ */
+const OFF_EFFORT_VALUES: Readonly<Record<string, string>> = {
+  'deepseek-v4.1-flash': 'none',
+  'deepseek-v4.1-flash-sg': 'none',
+}
+
+export function offEffortValue(modelId: string): string | undefined {
+  return OFF_EFFORT_VALUES[modelId]
 }
 
 /**

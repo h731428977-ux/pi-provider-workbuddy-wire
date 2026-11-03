@@ -70,11 +70,11 @@ pi install "D:/path/to/pi-provider-workbuddy-wire"
 
 **离线安装包**
 
-Pi 的本地安装需要展开后的目录。拿到 `pi-provider-workbuddy-wire-0.3.0.tgz` 后：
+Pi 的本地安装需要展开后的目录。拿到 `pi-provider-workbuddy-wire-0.3.1.tgz` 后：
 
 ```powershell
 New-Item -ItemType Directory -Force .\pi-provider-workbuddy-wire | Out-Null
-tar -xzf .\pi-provider-workbuddy-wire-0.3.0.tgz -C .\pi-provider-workbuddy-wire
+tar -xzf .\pi-provider-workbuddy-wire-0.3.1.tgz -C .\pi-provider-workbuddy-wire
 pi install ".\pi-provider-workbuddy-wire\package"
 ```
 
@@ -181,8 +181,8 @@ Pi ExtensionAPI
 
 更多实现细节：
 
-- **思考档位**：只映射上游为该模型声明过的档位；`off` 档位只在模型声明可关闭思考、且不在实测拒绝名单（9 个模型对 `reasoning_effort: "off"` 回 400，勾上等于每次压缩摘要都失败）时提供。
-- **图片输入**：按厂商文档核验表判定，而不是上游平台侧的 `supportsImages` 声明（真实数据里它对纯文本模型也是 `true`）；未核实的模型不声明 image 输入。
+- **思考档位**：只映射上游为该模型声明过的档位；常规情况下，`off` 只在模型声明可关闭思考、且不在实测拒绝名单时提供。`deepseek-v4.1-flash` 与 `deepseek-v4.1-flash-sg` 是实测例外：关闭值应为 `"none"`，插件会自动把 Pi 的 `off` 映射成这个值。
+- **图片输入**：按厂商文档和实测表判定，而不是上游平台侧的 `supportsImages` 声明（真实数据里它对纯文本模型也是 `true`）；国际版 `kimi-k3` 已实测支持图片。
 - **上下文超长**：上游 11115 的错误信息是中文而 pi 的溢出检测读英文，错误消息前置 `prompt is too long (upstream code 11115)`，让 pi 的压缩自救能触发。
 
 ## Wire Profile 维护

@@ -18,7 +18,8 @@ var catalog_exports = {};
 __export(catalog_exports, {
   REFUSES_OFF_MODEL_IDS: () => REFUSES_OFF_MODEL_IDS,
   fallbackModelsFor: () => fallbackModelsFor,
-  nativeImageInput: () => nativeImageInput
+  nativeImageInput: () => nativeImageInput,
+  offEffortValue: () => offEffortValue
 });
 function fallbackModelsFor(region) {
   return region === "global" ? FALLBACK_GLOBAL : FALLBACK_CN;
@@ -28,7 +29,10 @@ function nativeImageInput(modelId) {
   if (NATIVE_TEXT.has(modelId)) return false;
   return void 0;
 }
-var FALLBACK_CN, FALLBACK_GLOBAL, NATIVE_MULTIMODAL, NATIVE_TEXT, REFUSES_OFF_MODEL_IDS;
+function offEffortValue(modelId) {
+  return OFF_EFFORT_VALUES[modelId];
+}
+var FALLBACK_CN, FALLBACK_GLOBAL, NATIVE_MULTIMODAL, NATIVE_TEXT, OFF_EFFORT_VALUES, REFUSES_OFF_MODEL_IDS;
 var init_catalog = __esm({
   "src/catalog.ts"() {
     "use strict";
@@ -72,6 +76,7 @@ var init_catalog = __esm({
       "glm-5v-turbo",
       "kimi-k2.6",
       "kimi-k2.7",
+      "kimi-k3",
       "kimi-k3-1",
       "minimax-m3"
     ]);
@@ -83,6 +88,10 @@ var init_catalog = __esm({
       "hy3",
       "hy4-preview"
     ]);
+    OFF_EFFORT_VALUES = {
+      "deepseek-v4.1-flash": "none",
+      "deepseek-v4.1-flash-sg": "none"
+    };
     REFUSES_OFF_MODEL_IDS = /* @__PURE__ */ new Set([
       "deepseek-v4.1-flash",
       "deepseek-v4.1-flash-sg",
@@ -2651,7 +2660,8 @@ function thinkingLevelMapFor(info) {
   for (const level of ["minimal", "low", "medium", "high", "xhigh", "max"]) {
     map[level] = supported.includes(level) ? level : null;
   }
-  map["off"] = info.reasoning?.canDisableThinking === true && !REFUSES_OFF_MODEL_IDS.has(info.id) ? "off" : null;
+  const offEffort = offEffortValue(info.id);
+  map["off"] = offEffort ?? (info.reasoning?.canDisableThinking === true && !REFUSES_OFF_MODEL_IDS.has(info.id) ? "off" : null);
   return map;
 }
 function toModelConfigs(region, models) {
@@ -2941,5 +2951,6 @@ function providerRegionOf(model) {
   return model.provider === "workbuddy-global" ? "global" : "cn";
 }
 export {
-  index_default as default
+  index_default as default,
+  thinkingLevelMapFor
 };
